@@ -49,17 +49,7 @@ def sign_page():
 def verify_page():
     if 'username' not in session:
         return redirect(url_for('login'))
-
-    user = session['username']
-    inbox_path = os.path.join(RECEIVED_FOLDER, user)
-    files = []
-    if os.path.exists(inbox_path):
-        for f in os.listdir(inbox_path):
-            if not f.endswith('.sig'):
-                sig = f + '.sig'
-                if os.path.exists(os.path.join(inbox_path, sig)):
-                    files.append((f, sig))
-    return render_template('verify.html', username=user, files=files)
+    return render_template('verify.html', username=session['username'])
 
 @app.route('/generate_keys', methods=['POST'])
 def generate_keys():
@@ -96,6 +86,11 @@ def sign_file_route():
                            signature=signature_hex,
                            username=session['username'])
 
+@app.route('/download_signature/<filename>')
+def download_signature(filename):
+    sig_path = os.path.join(SIGNATURE_FOLDER, filename)
+    return send_file(sig_path, as_attachment=True)
+
 @app.route('/send_signed_file', methods=['POST'])
 def send_signed_file():
     if 'username' not in session:
@@ -120,18 +115,25 @@ def verify_file_route():
     if 'username' not in session:
         return redirect(url_for('login'))
 
-    file = request.form['file_path']
-    user = session['username']
-    base_path = os.path.join(RECEIVED_FOLDER, user)
+    # Upload file và chữ ký từ người dùng
+    file = request.files['file']
+    signature_file = request.files['signature']
 
-    filepath = os.path.join(base_path, file)
-    sigpath = filepath + '.sig'
+    if not file or not signature_file:
+        return render_template('verify.html', username=session['username'], verification_result=False)
 
+    # Lưu tạm file và chữ ký
+    temp_file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+    temp_sig_path = os.path.join(UPLOAD_FOLDER, signature_file.filename)
+
+    file.save(temp_file_path)
+    signature_file.save(temp_sig_path)
+
+    # Xác minh bằng public key
     public_key_path = os.path.join(KEY_FOLDER, 'public.pem')
-    valid = verify_signature(filepath, sigpath, public_key_path)
+    valid = verify_signature(temp_file_path, temp_sig_path, public_key_path)
 
-    if valid:
-        return send_file(filepath, as_attachment=True)
-    return render_template('verify.html', username=user, verification_result=False)
+    return render_template('verify.html', username=session['username'], verification_result=valid)
+
 if __name__ == '__main__':
     app.run(debug=True)
